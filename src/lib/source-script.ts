@@ -22,7 +22,7 @@ function getRuntimeRequire(): NodeRequire {
 
   return ((moduleName: string) => {
     throw new Error(`当前运行环境不支持脚本 require: ${moduleName}`);
-  }) as NodeRequire;
+  }) as unknown as NodeRequire;
 }
 
 // ---- 内存缓存 ----
