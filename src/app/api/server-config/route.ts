@@ -3,6 +3,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getConfig } from '@/lib/config';
+import { getUserFeatureAccess } from '@/lib/permissions';
+import { listEnabledSourceScripts } from '@/lib/source-script';
 import { CURRENT_VERSION } from '@/lib/version';
 
 export const runtime = 'nodejs';
@@ -12,6 +14,49 @@ export async function GET(request: NextRequest) {
   console.log('server-config called: ', request.url);
 
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
+
+  if (request.nextUrl.searchParams.get('rootDebug') === '1') {
+    const checks: Array<{ step: string; ok: boolean; detail?: unknown }> = [];
+    const runCheck = async (step: string, fn: () => Promise<unknown>) => {
+      try {
+        const detail = await fn();
+        checks.push({ step, ok: true, detail });
+      } catch (error) {
+        checks.push({
+          step,
+          ok: false,
+          detail:
+            error instanceof Error
+              ? { name: error.name, message: error.message }
+              : String(error),
+        });
+      }
+    };
+
+    await runCheck('getUserFeatureAccess(null)', async () => {
+      const access = await getUserFeatureAccess(null);
+      return { keys: Object.keys(access).length };
+    });
+    await runCheck('getConfig()', async () => {
+      const config = await getConfig();
+      return {
+        customCategoriesIsArray: Array.isArray(config.CustomCategories),
+        liveConfigIsArray: Array.isArray(config.LiveConfig),
+        embySourcesIsArray: Array.isArray(config.EmbyConfig?.Sources),
+        hasThemeConfig: Boolean(config.ThemeConfig),
+        hasSiteConfig: Boolean(config.SiteConfig),
+      };
+    });
+    await runCheck('listEnabledSourceScripts()', async () => {
+      const scripts = await listEnabledSourceScripts();
+      return { count: scripts.length };
+    });
+
+    return NextResponse.json({
+      storageType,
+      checks,
+    });
+  }
 
   const isLiteMode = process.env.MOONTV_LITE === 'true';
 
