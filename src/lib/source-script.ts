@@ -8,9 +8,22 @@ import { db } from '@/lib/db';
 const SOURCE_SCRIPT_REGISTRY_KEY = 'source-script:registry';
 const DEFAULT_TIMEOUT_MS = 20000;
 
-// 绕过 webpack 静态分析，获取真正的 Node.js require
-// eslint-disable-next-line no-eval
-const _nodeRequire = eval('require') as NodeRequire;
+function getRuntimeRequire(): NodeRequire {
+  try {
+    // 绕过 webpack 静态分析，获取真正的 Node.js require
+    // eslint-disable-next-line no-eval
+    const runtimeRequire = eval('require') as NodeRequire;
+    if (typeof runtimeRequire === 'function') {
+      return runtimeRequire;
+    }
+  } catch {
+    // Cloudflare Workers 没有 Node.js require。仅列出脚本时不应因此导致页面 SSR 失败。
+  }
+
+  return ((moduleName: string) => {
+    throw new Error(`当前运行环境不支持脚本 require: ${moduleName}`);
+  }) as NodeRequire;
+}
 
 // ---- 内存缓存 ----
 let _registryCache: { data: SourceScriptRegistry; ts: number } | null = null;
@@ -434,7 +447,7 @@ function getOrCompileScript(script: SourceScriptRecord) {
   if (cached) return cached;
 
   const factory = createScriptFactory(script.code);
-  const compiled = normalizeScript(factory(_nodeRequire));
+  const compiled = normalizeScript(factory(getRuntimeRequire()));
 
   if (_compiledCache.size >= MAX_COMPILED_CACHE_SIZE) {
     const firstKey = _compiledCache.keys().next().value;
@@ -652,7 +665,7 @@ export async function testSourceScript(input: {
     };
 
     const factory = createScriptFactory(input.code);
-    const compiled = normalizeScript(factory(_nodeRequire));
+    const compiled = normalizeScript(factory(getRuntimeRequire()));
     const hook = compiled[input.hook];
     if (typeof hook !== 'function') {
       throw new Error(`脚本未实现 ${input.hook} hook`);
